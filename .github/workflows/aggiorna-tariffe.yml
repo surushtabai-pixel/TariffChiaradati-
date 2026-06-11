@@ -1,0 +1,38 @@
+name: Aggiorna tariffe ARERA
+
+# Quando girare: ogni giorno alle 05:30 UTC, più un pulsante per lanciarlo a mano.
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch: {}
+
+# Serve il permesso di scrivere nel repository per salvare il file aggiornato.
+permissions:
+  contents: write
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica il repository
+        uses: actions/checkout@v4
+
+      - name: Prepara Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Estrai le tariffe dal Portale Offerte ARERA
+        run: python arera_tariffe.py estrai
+
+      - name: Salva il file aggiornato nel repository
+        run: |
+          git config user.name "tariffe-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add tariffe_luce.json tariffe_luce.csv
+          if git diff --staged --quiet; then
+            echo "Nessuna variazione nelle tariffe."
+          else
+            git commit -m "Aggiorna tariffe ARERA $(date -u +%F)"
+            git push
+          fi
