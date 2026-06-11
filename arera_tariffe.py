@@ -168,16 +168,43 @@ def parse_componenti(off):
     return prezzo_energia, UNITA.get(energia_um, energia_um), quota_anno, UNITA.get(quota_um, quota_um)
 
 
+def find_and_download(market="E", days_back=15):
+    """Prova oggi e i giorni precedenti scaricando direttamente; riporta gli errori."""
+    today = datetime.date.today()
+    last = None
+    for i in range(days_back):
+        d = today - datetime.timedelta(days=i)
+        u = url_for(d, market)
+        try:
+            req = urllib.request.Request(u, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=120) as r:
+                data = r.read()
+                print(f"OK: scaricato {u}  ({len(data)/1_000_000:.1f} MB)")
+                return data
+        except urllib.error.HTTPError as e:
+            last = f"HTTP {e.code} ({e.reason}) su {u}"
+            if e.code == 404:
+                continue  # quel giorno non c'è, provo il precedente
+            print("BLOCCO:", last)
+            break
+        except Exception as e:
+            last = f"{type(e).__name__}: {e} su {u}"
+            continue
+    print("Download NON riuscito. Ultimo esito:", last)
+    return None
+
+
 def estrai():
-    url = find_latest("E")
-    if not url:
-        print("File non trovato. Vedi nota in 'esplora'.")
-        return
-    data = download(url)
+    data = find_and_download("E")
+    if not data:
+        print(">>> ERRORE: nessun dato scaricato (probabile blocco di ARERA verso il server).")
+        sys.exit(1)
     root = ET.fromstring(data)
     from collections import Counter
     figli = Counter(local(c.tag) for c in root)
     offer_tag = figli.most_common(1)[0][0]
+    totali = sum(1 for c in root if local(c.tag) == offer_tag)
+    print(f"Offerte totali nel file: {totali}")
 
     righe = []
     for off in (c for c in root if local(c.tag) == offer_tag):
@@ -203,9 +230,9 @@ def estrai():
         })
 
     if not righe:
-        print("Nessuna offerta domestica estratta: forse i tag sono diversi. "
-              "Lancia 'esplora' e incollami l'output.")
-        return
+        print(">>> ERRORE: 0 offerte domestiche estratte (su", totali, "totali). "
+              "Lo schema potrebbe essere cambiato.")
+        sys.exit(1)
 
     with open("tariffe_luce.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(righe[0].keys()))
